@@ -1,0 +1,51 @@
+# ── Maven build output ─────────────────────────────────────
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# ── IntelliJ IDEA ──────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+.idea_modules/
+
+# ── Eclipse ────────────────────────────────────────────────
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+# ── VS Code ────────────────────────────────────────────────
+.vscode/
+
+# ── Secrets — NEVER commit these ───────────────────────────
+.env
+*.env
+application-local.yml
+application-prod.yml
+application-secret.yml
+
+# ── OS files ───────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ── Java compiled output ───────────────────────────────────
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+
+# ── Logs ───────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Spring Boot DevTools ───────────────────────────────────
+.reloadtrigger
