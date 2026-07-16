@@ -1,0 +1,172 @@
+spring:
+  application:
+    name: expense-tracker
+
+  # ── Database ──────────────────────────────────────────────────────────────
+  datasource:
+    url: jdbc:postgresql://localhost:5432/expense_tracker?currentSchema=usr,txn,bgt,ntf,rpt,public&reWriteBatchedInserts=true&ApplicationName=expense-tracker
+    username: ${DB_USERNAME:app_user}
+    password: ${DB_PASSWORD:app_user_password}
+    driver-class-name: org.postgresql.Driver
+
+    hikari:
+      # Pool sizing: (core count * 2) + effective_spindle_count
+      # For a 4-core machine with SSD: (4*2)+1 = 9. Round to 10.
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 20000       # 20s — fail fast if DB unreachable
+      idle-timeout: 300000            # 5 min idle before connection released
+      max-lifetime: 1800000           # 30 min — recycle to avoid stale connections
+      keepalive-time: 60000           # 1 min heartbeat to keep connection alive
+      pool-name: ExpenseTrackerPool
+      # Validate connection before handing to application
+      connection-test-query: SELECT 1
+      # These props are passed to the JDBC driver
+      data-source-properties:
+        socketTimeout: 30             # 30s — abort if DB stops responding mid-query
+        connectTimeout: 10            # 10s — abort if DB unreachable on connect
+        tcpKeepAlive: true            # OS-level keepalive for long-lived connections
+
+  # ── JPA / Hibernate ───────────────────────────────────────────────────────
+  jpa:
+    hibernate:
+      ddl-auto: validate              # NEVER create/update in prod — Flyway owns DDL
+    show-sql: false                   # Set true only for local debugging
+    open-in-view: false               # Disable OSIV — prevents lazy-load across HTTP boundary
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        use_sql_comments: true
+        jdbc:
+          batch_size: 25              # Batch INSERTs for bulk operations
+          fetch_size: 50              # Rows fetched per round-trip in result sets
+        order_inserts: true           # Reorder for batching efficiency
+        order_updates: true
+        generate_statistics: false    # Enable only for performance profiling
+        default_schema: public        # Fallback schema for unqualified names
+
+  # ── Flyway ────────────────────────────────────────────────────────────────
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false        # false in prod — migration must be clean
+    validate-on-migrate: true         # Fail on checksum mismatch — never silently skip
+    out-of-order: false               # Enforce sequential versioning
+    schemas: public                   # Flyway schema_version table lives in public
+    # Flyway connects as postgres (superuser) to create schemas/extensions.
+    # App at runtime uses app_user (restricted).
+    user: ${DB_ADMIN_USERNAME:postgres}
+    password: ${DB_ADMIN_PASSWORD:postgres}
+
+  # ── Caching ───────────────────────────────────────────────────────────────
+  cache:
+    type: simple                      # ConcurrentHashMap — swap to redis for multi-node
+
+  # ── Async thread pool ─────────────────────────────────────────────────────
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 16
+        queue-capacity: 500
+        thread-name-prefix: async-event-
+      shutdown:
+        await-termination: true
+        await-termination-period: 30s # Drain event listeners on shutdown
+
+  # ── Scheduling ────────────────────────────────────────────────────────────
+  task:
+    scheduling:
+      pool:
+        size: 2
+        thread-name-prefix: scheduler-
+
+# ── Server ────────────────────────────────────────────────────────────────────
+server:
+  port: 8080
+  shutdown: graceful                  # Drain requests before stopping (K8s-friendly)
+  error:
+    include-message: never            # Never expose internal messages to clients
+    include-stacktrace: never
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml
+    min-response-size: 1024
+
+# ── JWT ───────────────────────────────────────────────────────────────────────
+jwt:
+  secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+  expiry-ms: 900000                   # 15 minutes
+  refresh-expiry-ms: 2592000000       # 30 days
+
+# ── App config ────────────────────────────────────────────────────────────────
+app:
+  budget:
+    default-alert-threshold-pct: 80.0
+
+# ── Actuator ──────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,flyway
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true                 # /actuator/health/liveness + /readiness for K8s
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    com.app: DEBUG
+    org.hibernate.SQL: WARN           # Set DEBUG only when debugging queries
+    com.zaxxer.hikari: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level [%X{userId:-}] [%X{requestId:-}] %logger{30} - %msg%n"
+
+---
+# ── LOCAL DEVELOPMENT PROFILE ─────────────────────────────────────────────────
+spring:
+  config:
+    activate:
+      on-profile: local
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/expense_tracker?currentSchema=usr,txn,bgt,ntf,rpt,public
+    username: postgres
+    password: postgres
+    hikari:
+      maximum-pool-size: 5
+  jpa:
+    show-sql: true
+  flyway:
+    user: postgres
+    password: postgres
+
+logging:
+  level:
+    com.app: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.orm.jdbc.bind: TRACE    # Logs bind parameter values
+
+---
+# ── TEST PROFILE ──────────────────────────────────────────────────────────────
+spring:
+  config:
+    activate:
+      on-profile: test
+
+  datasource:
+    url: jdbc:h2:mem:testdb;MODE=PostgreSQL;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
